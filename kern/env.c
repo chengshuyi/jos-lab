@@ -119,7 +119,12 @@ env_init(void)
 {
 	// Set up envs array
 	// LAB 3: Your code here.
-
+	int i;
+	for(i=NENV-1;i>=0;i--){
+		envs[i].env_status = ENV_FREE;
+		envs[i].env_link = env_free_list;
+		env_free_list = &envs[i];
+	}
 	// Per-CPU part of the initialization
 	env_init_percpu();
 }
@@ -182,6 +187,19 @@ env_setup_vm(struct Env *e)
 	//    - The functions in kern/pmap.h are handy.
 
 	// LAB 3: Your code here.
+	p->pp_ref += 1;
+	e->env_pgdir = (pde_t *)page2kva(p);
+	memcpy(page2kva(p),(void *)kern_pgdir,PGSIZE);
+	// modify perm from PTE_K|PTE_W to PTE_U
+	// pte_t *pte_entry;
+	// struct PageInfo *pp;
+	// uintptr_t s_t = UENVS;
+	// uintptr_t e_t = ROUNDUP(sizeof(struct Env)*NENV,PGSIZE);
+	// for(;s_t<e_t;s_t+=PGSIZE){
+	// 	pp = page_lookup(kern_pgdir,(void *)s_t, &pte_entry);
+	// 	if(pp==NULL) panic("error\n");
+	// 	page_insert(e->env_pgdir,pp,(void *)s_t,PTE_U|PTE_P);
+	// }
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -279,6 +297,16 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	uintptr_t va_s = ROUNDDOWN((uintptr_t)va,PGSIZE);
+	uintptr_t va_e = ROUNDUP((uintptr_t)(va+len),PGSIZE);
+	uintptr_t i;
+	struct PageInfo *pp;
+	for(i=va_s;i<va_e;i+=PGSIZE){
+		pp = page_alloc(0);
+		if(pp == NULL) panic("region_alloc: %e\n",-E_NO_MEM);
+		page_insert(e->env_pgdir,pp,(void *)i,PTE_W|PTE_U|PTE_P);
+	}
+
 }
 
 //
@@ -335,11 +363,53 @@ load_icode(struct Env *e, uint8_t *binary)
 	//  What?  (See env_run() and env_pop_tf() below.)
 
 	// LAB 3: Your code here.
+	struct Proghdr *ph, *eph;
+	struct Elf *elfheader;
+	size_t i;
+	pte_t *pte_entry;
+	struct PageInfo *pp = NULL;
+	elfheader = (struct Elf*)binary;
+	// is this a valid ELF?
+	if (elfheader->e_magic != ELF_MAGIC)
+		panic("wrong elf magic\n");
+
+	// load each program segment (ignores ph flags)
+	ph = (struct Proghdr *) ((uint8_t *) elfheader + elfheader->e_phoff);
+	eph = ph + elfheader->e_phnum;
+	for (; ph < eph; ph++){
+		if(ph->p_type == ELF_PROG_LOAD){
+			region_alloc(e,(void *)ph->p_va,ph->p_memsz);
+			cprintf("load code into va is %x, len is %x\n",ph->p_va,ph->p_memsz);
+			uint32_t cur_pgnum = 0;
+			for(i=ph->p_va;i<ph->p_filesz+ph->p_va;i++){
+				if(cur_pgnum != PGNUM(i)){
+					pp = page_lookup(e->env_pgdir,(void *)i,&pte_entry);
+					if(pp == NULL) panic("cant find page\n");
+					cur_pgnum = PGNUM(i);
+				}
+				*((uint8_t *)page2kva(pp)+PGOFF(i)) = *((uint8_t *)elfheader+ph->p_offset+i-ph->p_va);
+			}
+			cur_pgnum = 0;
+			for(i=ph->p_va+ph->p_filesz;i<ph->p_memsz+ph->p_va;i++){
+				if(cur_pgnum != PGNUM(i)){
+					pp = page_lookup(e->env_pgdir,(void *)i,&pte_entry);
+					cur_pgnum = PGNUM(i);
+				}
+				*((uint8_t *)page2kva(pp)+PGOFF(i)) = 0;
+			}
+		}
+	}
+	e->env_tf.tf_eip = (uintptr_t)elfheader->e_entry;
 
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
 
-	// LAB 3: Your code here.
+	// LAB 3: Your code here
+	pp = page_alloc(0);
+	int ret = page_insert(e->env_pgdir,pp,(void *)(USTACKTOP - PGSIZE),PTE_U|PTE_W|PTE_P);
+	if(ret < 0){
+		panic("%e\n",ret);
+	}
 }
 
 //
@@ -353,6 +423,10 @@ void
 env_create(uint8_t *binary, enum EnvType type)
 {
 	// LAB 3: Your code here.
+	struct Env *env;
+	env_alloc(&env,0);
+	env->env_type = type;
+	load_icode(env,binary);
 }
 
 //
@@ -483,7 +557,13 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
-
-	panic("env_run not yet implemented");
+	if(curenv != e){
+		if(curenv != NULL) curenv->env_status = ENV_RUNNABLE;
+		curenv = e;
+		curenv->env_status = ENV_RUNNING;
+		curenv->env_runs += 1;
+		lcr3(PADDR(curenv->env_pgdir));
+	}
+	env_pop_tf(&e->env_tf);
 }
 
