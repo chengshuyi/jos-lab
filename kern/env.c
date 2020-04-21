@@ -265,6 +265,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Enable interrupts while in user mode.
 	// LAB 4: Your code here.
+	e->env_tf.tf_eflags = (e->env_tf.tf_eflags|FL_IF);
 
 	// Clear the page fault handler until user installs one.
 	e->env_pgfault_upcall = 0;
@@ -379,7 +380,7 @@ load_icode(struct Env *e, uint8_t *binary)
 	for (; ph < eph; ph++){
 		if(ph->p_type == ELF_PROG_LOAD){
 			region_alloc(e,(void *)ph->p_va,ph->p_memsz);
-			cprintf("load code into va is %x, len is %x\n",ph->p_va,ph->p_memsz);
+			// cprintf("load code into va is %x, len is %x\n",ph->p_va,ph->p_memsz);
 			uint32_t cur_pgnum = 0;
 			for(i=ph->p_va;i<ph->p_filesz+ph->p_va;i++){
 				if(cur_pgnum != PGNUM(i)){
@@ -557,13 +558,19 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
+	// cprintf("env id is %x\n",e->env_id);
 	if(curenv != e){
-		if(curenv != NULL) curenv->env_status = ENV_RUNNABLE;
+		// lab 4 part 3 ipc bug fix
+		//user panic in <unknown> at lib/syscall.c:35 syscall 12 returned 12 (> 0)
+		if(curenv != NULL && curenv->env_status == ENV_RUNNING) curenv->env_status = ENV_RUNNABLE;
 		curenv = e;
 		curenv->env_status = ENV_RUNNING;
 		curenv->env_runs += 1;
 		lcr3(PADDR(curenv->env_pgdir));
 	}
+	//todo
+	unlock_kernel();
+	//todo
 	env_pop_tf(&e->env_tf);
 }
 

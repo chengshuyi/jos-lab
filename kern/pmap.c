@@ -268,6 +268,12 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
+	int i;
+	uintptr_t s = KSTACKTOP;
+	for(i=0;i<NCPU;i++){
+		boot_map_region(kern_pgdir,s-KSTKSIZE,KSTKSIZE,PADDR(percpu_kstacks[i]),PTE_W|PTE_P);
+		s -= KSTKSIZE+KSTKGAP;
+	}
 
 }
 
@@ -310,10 +316,23 @@ page_init(void)
 	size_t i;
 	size_t s,e;
 	physaddr_t ext_first_free_addr = PADDR(boot_alloc(0));//ext memory free physical address
+	// lab4
+	extern char mpentry_start[];
+	extern char mpentry_end[];
+	s = MPENTRY_PADDR;
+	e = mpentry_end-mpentry_start+s;
+	s = ROUNDDOWN(s,PGSIZE);
+	e = ROUNDUP(e,PGSIZE);
+	s = PGNUM(s);
+	e = PGNUM(e);
+	for(i=s;i<e;i++){
+		pages[i].pp_ref = 1;
+		pages[i].pp_link = NULL;
+	}
 	//1) the first page
 	pages[0].pp_ref = 1;
 	//2) 4KB - 640KB
-	for(i=1;i<npages_basemem;i++){
+	for(i=e;i<npages_basemem;i++){
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
@@ -594,7 +613,12 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	size = ROUNDUP(size,PGSIZE);
+	if(size > MMIOLIM) panic("error");
+	boot_map_region(kern_pgdir,base,size,pa,PTE_PCD|PTE_PWT|PTE_W|PTE_P);
+	// allocated successfully
+	base += size;
+	return (void *)(base-size);
 }
 
 static uintptr_t user_mem_check_addr;
@@ -625,8 +649,9 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 	uintptr_t e = ROUNDUP((uintptr_t)va+len,PGSIZE);
 	pte_t *pte_entry;
 	for(;s<e;s+=PGSIZE){
-		// cprintf("va is %x ULIM is %x\n",s,ULIM);
-		page_lookup(env->env_pgdir,(void *)s,&pte_entry); 
+		pte_entry = pgdir_walk(env->env_pgdir,(void *)s,0);
+		// cprintf("va is %x ULIM is %x s is %x entry is %x\n",va,ULIM, s,*pte_entry);
+
 		if(s>ULIM || pte_entry == NULL || (PGOFF(*pte_entry)&perm) != perm){
 			user_mem_check_addr = MAX(s,(uintptr_t)va);
 			return -E_FAULT;
