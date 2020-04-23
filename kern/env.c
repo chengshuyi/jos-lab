@@ -277,7 +277,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	env_free_list = e->env_link;
 	*newenv_store = e;
 
-	// cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
+	cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
 	return 0;
 }
 
@@ -431,6 +431,12 @@ env_create(uint8_t *binary, enum EnvType type)
 	env_alloc(&env,0);
 	env->env_type = type;
 	load_icode(env,binary);
+	if(type == ENV_TYPE_FS){
+		env->env_type = ENV_TYPE_FS;
+		// The x86 processor uses the IOPL bits in the EFLAGS register to determine whether protected-mode code
+		// is allowed to perform special device I/O instructions such as the IN and OUT instructions. 
+		env->env_tf.tf_eflags |= FL_IOPL_MASK;
+	}
 }
 
 //
@@ -450,7 +456,7 @@ env_free(struct Env *e)
 		lcr3(PADDR(kern_pgdir));
 
 	// Note the environment's demise.
-	// cprintf("[%08x] free env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
+	cprintf("[%08x] free env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
 
 	// Flush all mapped pages in the user portion of the address space
 	static_assert(UTOP % PTSIZE == 0);

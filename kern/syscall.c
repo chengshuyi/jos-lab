@@ -131,7 +131,20 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 	// LAB 5: Your code here.
 	// Remember to check whether the user has supplied us with a good
 	// address!
-	panic("sys_env_set_trapframe not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1) < 0){
+		return -E_BAD_ENV;
+	}
+	user_mem_assert(e, tf, sizeof(struct Trapframe), PTE_U);
+	e->env_tf = *tf;
+	// e->env_tf.tf_ds = GD_UD | 3;
+	// e->env_tf.tf_es = GD_UD | 3;
+	// e->env_tf.tf_ss = GD_UD | 3;
+	// e->env_tf.tf_esp = USTACKTOP; //comment these,otherwise the main function cannot accept argc in testpteshare.c
+	// e->env_tf.tf_cs = GD_UT | 3;
+	e->env_tf.tf_eflags |= FL_IF;
+	e->env_tf.tf_eflags &= (~FL_IOPL_MASK);
+	return 0;
 }
 
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
@@ -348,7 +361,7 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 	e->env_ipc_recving = false;
 	e->env_tf.tf_regs.reg_eax = 0;
 	e->env_status = ENV_RUNNABLE;
-	cprintf("kern:send %x from %x to %x\n",value,curenv->env_id,e->env_id);
+	// cprintf("kern:send %x from %x to %x\n",value,curenv->env_id,e->env_id);
 	return 0;
 }
 
@@ -374,7 +387,7 @@ sys_ipc_recv(void *dstva)
 	curenv->env_ipc_dstva = dstva;
 	curenv->env_ipc_from = 0;
 	curenv->env_status = ENV_NOT_RUNNABLE;
-	cprintf("kern:%x recv block\n",curenv->env_id);
+	// cprintf("kern:%x recv block\n",curenv->env_id);
 	sched_yield();
 	return 0;
 }
@@ -428,6 +441,12 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	}
 	case SYS_ipc_try_send:{
 		return sys_ipc_try_send(a1,a2,(void *)a3,a4);
+	}
+	case SYS_env_set_trapframe:{
+		return sys_env_set_trapframe(a1,(struct Trapframe *)a2);
+	}
+	case SYS_cgetc:{
+		return sys_cgetc();
 	}
 	default:
 		return -E_INVAL;

@@ -66,7 +66,8 @@ duppage(envid_t envid, unsigned pn)
 	// LAB 4: Your code here.
 	uintptr_t va = (pn<<PTXSHIFT);
 	if(uvpt[pn] & PTE_SHARE){
-		r = sys_page_map(thisenv->env_id,(void *)va,envid,(void *)va,PGOFF(uvpt[pn]));
+		// need to set PTE_SHARE?
+		r = sys_page_map(thisenv->env_id,(void *)va,envid,(void *)va,(PGOFF(uvpt[pn])&PTE_SYSCALL));
 		if(r < 0) return r;
 	}else if((uvpt[pn] & PTE_W) || (uvpt[pn] & PTE_COW)){
 		r = sys_page_map(thisenv->env_id,(void *)va,envid,(void *)va,PTE_U|PTE_P|PTE_COW);
@@ -75,7 +76,7 @@ duppage(envid_t envid, unsigned pn)
 		if(r < 0) return r;
 
 	}else{
-		r = sys_page_map(thisenv->env_id,(void *)va,envid,(void *)va,PGOFF(uvpt[pn]));
+		r = sys_page_map(thisenv->env_id,(void *)va,envid,(void *)va,PTE_P|PTE_U);
 		if(r < 0) return r;
 	}
 	return 0;
@@ -122,7 +123,7 @@ fork(void)
 	for(pn = PGNUM(UTEXT); pn < PGNUM(USTACKTOP); pn++) {
 		if((uvpd[pn >> 10] & PTE_P) && (uvpt[pn] & PTE_P)) {
 			if((r = duppage(envid, pn)) < 0)
-				panic("error\n");
+				panic("error %e, pn is %x",r,pn);
 		}
 	}
 	if((r=sys_page_alloc(envid,(void *)(UXSTACKTOP-PGSIZE),PTE_W|PTE_P|PTE_U)) < 0)
