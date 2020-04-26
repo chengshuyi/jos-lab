@@ -160,7 +160,7 @@ trap_init_percpu(void)
 	int i;
 	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP;
 	for(i=0;i<thiscpu->cpu_id;i++){
-		thiscpu->cpu_ts.ts_esp0 += (KSTKSIZE+KSTKGAP);
+		thiscpu->cpu_ts.ts_esp0 -= (KSTKSIZE+KSTKGAP);
 	}
 	thiscpu->cpu_ts.ts_ss0 = GD_KD;
 	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);
